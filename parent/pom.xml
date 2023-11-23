@@ -17,7 +17,7 @@ You should have received a copy of the GNU Lesser General Public License along w
     <packaging>pom</packaging>
     <properties>
         <java.version>21</java.version>
-        <V.javax.servlet>3.0.1</V.javax.servlet>
+        <V.javax.servlet>3.1.0</V.javax.servlet>
         <V.tribefire.extension.swagger>[3.0,3.1)</V.tribefire.extension.swagger>
         <V.tribefire.extension.web-api>[1.0,1.1)</V.tribefire.extension.web-api>
         <V.com.braintribe.common>[2.0,2.1)</V.com.braintribe.common>

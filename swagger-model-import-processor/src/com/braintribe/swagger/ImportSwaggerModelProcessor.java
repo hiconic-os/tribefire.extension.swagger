@@ -88,12 +88,14 @@ import com.braintribe.model.swagger.v2_0.meta.SwaggerTag;
 import com.braintribe.model.swagger.v2_0.meta.SwaggerTagsMd;
 import com.braintribe.model.swagger.v2_0.meta.SwaggerVendorExtensionMd;
 import com.braintribe.swagger.util.SwaggerValidator;
+import com.braintribe.utils.StringTools;
 import com.braintribe.utils.i18n.I18nTools;
 
 import io.swagger.models.ArrayModel;
 import io.swagger.models.ComposedModel;
 import io.swagger.models.Contact;
 import io.swagger.models.ExternalDocs;
+import io.swagger.models.HttpMethod;
 import io.swagger.models.Info;
 import io.swagger.models.License;
 import io.swagger.models.Model;
@@ -432,11 +434,26 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 	}
 
 	private void processOperations(String typePackage, GmMetaModel apiModel, Path path) {
-		for (Operation operation : path.getOperations()) {
+		for (Map.Entry<HttpMethod, Operation> entry : path.getOperationMap().entrySet()) {
+
+			Operation operation = entry.getValue();
 
 			String operationTitle = operation.getOperationId();
 			if (Objects.isNull(operationTitle)) {
-				operationTitle = operation.getSummary();
+				List<String> tags = operation.getTags();
+				logger.debug(() -> "Could not find an operation title. Looking for tags (" + tags + ")");
+				if (tags != null && tags.size() == 1) {
+					String tag = tags.get(0);
+					HttpMethod httpMethod = entry.getKey();
+					if (!StringTools.isBlank(tag) && httpMethod != null) {
+						operationTitle = httpMethod.name().toLowerCase() + " " + tag;
+					}
+				}
+			}
+			String summary = operation.getSummary();
+			if (Objects.isNull(operationTitle)) {
+				logger.debug(() -> "Could not find a title yet. Using the summary: " + summary);
+				operationTitle = summary;
 			}
 			if (Objects.isNull(operationTitle)) {
 				continue;

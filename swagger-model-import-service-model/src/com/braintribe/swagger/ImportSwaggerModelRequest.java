@@ -23,21 +23,36 @@ import com.braintribe.model.service.api.ServiceRequest;
 
 @Abstract
 public interface ImportSwaggerModelRequest extends AccessDataRequest, AuthorizedRequest {
-	
+
 	EntityType<ImportSwaggerModelRequest> T = EntityTypes.T(ImportSwaggerModelRequest.class);
-	
+
 	@Override
 	EvalContext<ImportSwaggerModelResponse> eval(Evaluator<ServiceRequest> evaluator);
-	
+
 	@Initializer("true")
 	boolean getImportOnlyDefinitions();
 	void setImportOnlyDefinitions(boolean value);
-	
-	String getNamespace();
-	void setNamespace(String namespace);
-	
+
+	@Initializer("'tribefire.demo'")
+	String getPackageName();
+	void setPackageName(String packageName);
+
+	@Initializer("'tribefire.demo'")
+	String getGroupId();
+	void setGroupId(String groupId);
+
+	@Initializer("'demo-swagger'")
+	String getModelBaseName();
+	void setModelBaseName(String modelBaseName);
+
 	@Initializer("false")
 	boolean getDisableValidation();
 	void setDisableValidation(boolean value);
+
+	String getIgnorePathPrefix();
+	void setIgnorePathPrefix(String ignorePathPrefix);
+
+	String getModelVersion();
+	void setModelVersion(String modelVersion);
 
 }

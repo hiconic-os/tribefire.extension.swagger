@@ -164,8 +164,12 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 	private Set<GenericEntity> externalReferences = new HashSet<>();
 	private Map<String, GmType> typeRegistry = new HashMap<>();
 	private Map<String, Map<String, Property>> propertyRegistry = new HashMap<>();
-	private String defaultNamespace = "";
+	private String groupId;
+	private String modelBaseName;
+	private String modelVersion;
+	private String packageName;
 	private boolean disableValidation;
+	private String ignorePathPrefix;
 
 	@Override
 	public ImportSwaggerModelResponse process(AccessRequestContext<ImportSwaggerModelRequest> context) {
@@ -196,12 +200,16 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 		return importSwagger(session, session.resources().url(request.getSwaggerResource()).asString(), request.getImportOnlyDefinitions());
 	}
 
-	private void init(ImportSwaggerModelRequest request) {
-		defaultNamespace = request.getNamespace();
+	/* package-private */ void init(ImportSwaggerModelRequest request) {
 		externalReferences = new HashSet<>();
 		typeRegistry = new HashMap<>();
 		propertyRegistry = new HashMap<>();
 		disableValidation = request.getDisableValidation();
+		ignorePathPrefix = request.getIgnorePathPrefix();
+		groupId = request.getGroupId();
+		modelBaseName = request.getModelBaseName();
+		modelVersion = request.getModelVersion();
+		packageName = request.getPackageName();
 	}
 
 	/* package-private */ ImportSwaggerModelResponse importSwagger(PersistenceGmSession session, String swaggerUrl, boolean importOnlyDefinitions) {
@@ -243,7 +251,6 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 		GmMetaModel metaModel = getGmMetaModel(swagger);
 
 		Info swaggerInfo = getDefaultInfoIfNotPresent(swagger.getInfo());
-		String typePackage = buildModelName(null, swaggerInfo.getTitle(), "-model").replaceAll("-", "").toLowerCase();
 
 		prepareExternalReferences();
 		externalReferences.stream().filter(GmType.class::isInstance).map(GmType.class::cast)
@@ -255,14 +262,14 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 		Optional<Map<String, Model>> swaggerDefinitions = Optional.ofNullable(swagger.getDefinitions());
 
 		swaggerDefinitions.ifPresent(swaggerDefinition -> swaggerDefinition.forEach((key, value) -> {
-			GmEntityType entityType = buildGmEntityType(metaModel, typePackage, key, value);
+			GmEntityType entityType = buildGmEntityType(metaModel, packageName, key, value);
 			metaModel.getTypes().add(entityType);
 
 			typeRegistry.put(key, entityType);
 			entityTypes.add(entityType);
 
 			Model swaggerType = value;
-			String typeSignature = buildTypeSiganture(typePackage, key);
+			String typeSignature = buildTypeSiganture(packageName, key);
 			Optional<Map<String, Property>> properties = Optional.ofNullable(swaggerType.getProperties());
 			if (properties.isPresent()) {
 				propertyRegistry.put(typeSignature, properties.get());
@@ -299,7 +306,7 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 		}));
 
 		// ADDING MORE MODEL DETAILS
-		String modelName = buildModelName(null, swaggerInfo.getTitle(), "-model");
+		String modelName = buildSimpleModelName("-model");
 
 		SwaggerInfoMd infoMd = buildInfoMd(swaggerInfo, modelName);
 		addMetaDataIfNecessary(metaModel.getMetaData(), infoMd);
@@ -336,7 +343,7 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 
 	private GmMetaModel getGmMetaModel(final Swagger swagger) {
 		Info swaggerInfo = getDefaultInfoIfNotPresent(swagger.getInfo());
-		String modelName = buildModelName(GROUP_NAME, swaggerInfo.getTitle(), "-model");
+		String modelName = buildModelName("-model");
 		String modelVersion = buildVersion(swaggerInfo.getVersion());
 
 		GmMetaModel metaModel = MetaModelBuilder.metaModel(modelName);
@@ -383,10 +390,9 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 	private GmMetaModel buildApiModel(Swagger swagger, GmMetaModel metaModel) {
 		Info swaggerInfo = getDefaultInfoIfNotPresent(swagger.getInfo());
 
-		String modelName = buildModelName(null, swaggerInfo.getTitle(), "-api-model");
+		String modelName = buildSimpleModelName("-api-model");
 		String modelVersion = buildVersion(swaggerInfo.getVersion());
-		String typePackage = modelName.replaceAll("-", "").toLowerCase();
-		String serviceModelName = buildModelName(GROUP_NAME, swaggerInfo.getTitle(), "-api-model");
+		String serviceModelName = buildModelName("-api-model");
 
 		GmMetaModel apiModel = MetaModelBuilder.metaModel(serviceModelName);
 		apiModel.setVersion(modelVersion);
@@ -394,10 +400,18 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 		apiModel.getDependencies().add(serviceModel);
 		apiModel.getDependencies().add(metaModel);
 
+		String baseRequestTypeSignature = buildTypeSiganture(packageName + ".base", "AbstractRequest");
+		GmEntityType baseRequestEntityType = MetaModelBuilder.entityType(baseRequestTypeSignature);
+		baseRequestEntityType.setDeclaringModel(apiModel);
+		baseRequestEntityType.getSuperTypes().add(authRequestType);
+		baseRequestEntityType.getSuperTypes().add(accessRequestType);
+		baseRequestEntityType.setGlobalId("type:" + baseRequestTypeSignature);
+		apiModel.getTypes().add(baseRequestEntityType);
+
 		// Operation endpoints
 		for (Map.Entry<String, Path> pathEntry : swagger.getPaths().entrySet()) {
 			Path path = pathEntry.getValue();
-			processOperations(typePackage, apiModel, path);
+			processOperations(pathEntry.getKey(), packageName, apiModel, path, baseRequestEntityType);
 		}
 
 		SwaggerInfoMd infoMd = buildInfoMd(swaggerInfo, modelName);
@@ -433,39 +447,36 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 		return apiModel;
 	}
 
-	private void processOperations(String typePackage, GmMetaModel apiModel, Path path) {
+	private void processOperations(String urlPath, String typePackage, GmMetaModel apiModel, Path path, GmEntityType baseRequestEntityType) {
+
+		if (!StringTools.isBlank(ignorePathPrefix) && urlPath.startsWith(ignorePathPrefix)) {
+			urlPath = urlPath.substring(ignorePathPrefix.length());
+		}
+
 		for (Map.Entry<HttpMethod, Operation> entry : path.getOperationMap().entrySet()) {
 
+			HttpMethod httpMethod = entry.getKey();
+			String methodString = httpMethod.name().toLowerCase();
 			Operation operation = entry.getValue();
 
 			String operationTitle = operation.getOperationId();
+
 			if (Objects.isNull(operationTitle)) {
-				List<String> tags = operation.getTags();
-				logger.debug(() -> "Could not find an operation title. Looking for tags (" + tags + ")");
-				if (tags != null && tags.size() == 1) {
-					String tag = tags.get(0);
-					HttpMethod httpMethod = entry.getKey();
-					if (!StringTools.isBlank(tag) && httpMethod != null) {
-						operationTitle = httpMethod.name().toLowerCase() + " " + tag;
-					}
-				}
+				logger.debug("Could not find a title yet. Using the path: " + urlPath);
+				String adaptedPath = urlPath.replace("/", " ").replace("-", " ");
+				operationTitle = methodString + " " + adaptedPath;
 			}
-			String summary = operation.getSummary();
-			if (Objects.isNull(operationTitle)) {
-				logger.debug(() -> "Could not find a title yet. Using the summary: " + summary);
-				operationTitle = summary;
-			}
+
 			if (Objects.isNull(operationTitle)) {
 				continue;
 			}
 
 			String operationName = camelizeApiTitle(operationTitle, true);
-			String requestTypeSignature = buildTypeSiganture(typePackage + "." + "api", operationName + "Request");
+			String requestTypeSignature = buildTypeSiganture(typePackage + "." + "api", operationName);
 
 			GmEntityType entityType = MetaModelBuilder.entityType(requestTypeSignature);
 			entityType.setDeclaringModel(apiModel);
-			entityType.getSuperTypes().add(authRequestType);
-			entityType.getSuperTypes().add(accessRequestType);
+			entityType.getSuperTypes().add(baseRequestEntityType);
 			entityType.setGlobalId("type:" + requestTypeSignature);
 
 			addMetaDataIfNecessary(entityType.getMetaData(), buildNameMd(operation.getSummary(), requestTypeSignature));
@@ -941,25 +952,21 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 		return Mandatory.T.create();
 	}
 
-	private String buildModelName(String prefix, String baseName, String sufix) {
-		prefix = StringUtils.isNoneBlank(prefix) ? prefix : "";
-		sufix = StringUtils.isNoneBlank(sufix) ? sufix : "";
-		baseName = StringUtils.isNoneBlank(baseName) ? baseName : "default_title" + RandomStringUtils.randomAlphabetic(5);
-		if (StringUtils.isNoneBlank(defaultNamespace)) {
-			baseName = defaultNamespace;
-			prefix = "";
-		}
-
-		String normalizedTitle = normalizeTitle(prefix + baseName + sufix);
-		return normalizedTitle;
+	private String buildModelName(String suffix) {
+		return groupId + ":" + buildSimpleModelName(suffix);
+	}
+	private String buildSimpleModelName(String suffix) {
+		return modelBaseName + suffix;
 	}
 
 	private String buildVersion(String baseVersion) {
-		return Objects.isNull(baseVersion) ? "1.0" : baseVersion;
-	}
-
-	private String normalizeTitle(String title) {
-		return title.replaceAll(" ", "-").replaceAll("\\[", "").replaceAll("\\]", "").toLowerCase();
+		if (modelVersion != null) {
+			return modelVersion;
+		}
+		if (Objects.isNull(baseVersion)) {
+			return "1.0";
+		}
+		return baseVersion;
 	}
 
 	private String camelize(String str, boolean capitalizeFirstLetter) {

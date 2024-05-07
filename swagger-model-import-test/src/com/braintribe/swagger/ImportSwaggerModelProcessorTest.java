@@ -40,8 +40,6 @@ import com.braintribe.model.meta.data.MetaData;
 import com.braintribe.model.meta.data.prompt.Description;
 import com.braintribe.model.meta.data.prompt.Name;
 import com.braintribe.model.notification.MessageNotification;
-import com.braintribe.model.notification.MessageWithCommand;
-import com.braintribe.model.notification.Notification;
 import com.braintribe.model.processing.smood.Smood;
 import com.braintribe.model.swagger.v2_0.meta.SwaggerBasePathMd;
 import com.braintribe.model.swagger.v2_0.meta.SwaggerConsumesMd;
@@ -50,12 +48,11 @@ import com.braintribe.model.swagger.v2_0.meta.SwaggerInfoMd;
 import com.braintribe.model.swagger.v2_0.meta.SwaggerProducesMd;
 import com.braintribe.model.swagger.v2_0.meta.SwaggerSchemesMd;
 
-
 public class ImportSwaggerModelProcessorTest {
-	
+
 	private Smood smood;
 	private final TestSessionFactory sessionFactory = new TestSessionFactory();
-	
+
 	@Before
 	public void setup() {
 		smood = new Smood(new ReentrantReadWriteLock());
@@ -68,25 +65,27 @@ public class ImportSwaggerModelProcessorTest {
 		GmMetaModel metaModel = GmMetaModel.T.create();
 		metaModel.setName("MyMetaModel");
 		metaModel.getMetaData().add(Description.T.create());
-		
+
 		GmMetaModel metaModel2 = GmMetaModel.T.create();
 		metaModel2.setName("MyMetaModel2");
 		metaModel2.getMetaData().add(Description.T.create());
-		
+
 		metaModel.getDependencies().add(metaModel2);
-		
+
 		GmMetaModel gmMetaModel = ConvertSwaggerModelProcessor.copyModelSkeleton(metaModel);
 		Assertions.assertThat(gmMetaModel.getMetaData()).isEmpty();
 		Assertions.assertThat(gmMetaModel.getDependencies()).hasSize(1);
 	}
-	
+
 	@Test
 	public void testImportSwaggerModel() throws GmSessionException {
 		// when
 		ImportSwaggerModelFromUrl request = getRequest("res/swagger-minimal.yaml");
 		ImportSwaggerModelProcessor processor = new ImportSwaggerModelProcessor();
-		ImportSwaggerModelResponse response = processor.importSwagger(sessionFactory.newSession("test.access"), request.getSwaggerUrl(), request.getImportOnlyDefinitions());
-		
+		processor.init(request);
+		ImportSwaggerModelResponse response = processor.importSwagger(sessionFactory.newSession("test.access"), request.getSwaggerUrl(),
+				request.getImportOnlyDefinitions());
+
 		// then
 		MessageNotification notification = (MessageNotification) response.getNotifications().get(0);
 		assertEquals("Imported Model from Swagger definition as: tribefire.extension.swagger:test-swagger-import-model", notification.getMessage());
@@ -129,7 +128,7 @@ public class ImportSwaggerModelProcessorTest {
 				assertThat(propertyMap).containsKey("name");
 				assertThat(propertyMap).containsKey("tag");
 				assertThat(propertyMap).containsKey("enumType");
-				
+
 			} else if (type instanceof GmEnumType) {
 				GmEnumType gmEnumType = (GmEnumType) type;
 				List<GmEnumConstant> enumConstants = gmEnumType.getConstants();
@@ -140,7 +139,7 @@ public class ImportSwaggerModelProcessorTest {
 			}
 		});
 	}
-	
+
 	private ImportSwaggerModelFromUrl getRequest(String path) throws GmSessionException {
 		File testFile = new File(path);
 		assertFilesExistAndAreFiles(testFile);
@@ -148,13 +147,15 @@ public class ImportSwaggerModelProcessorTest {
 		request.setSwaggerUrl(testFile.getPath());
 		request.setDomainId("test.access");
 		request.setImportOnlyDefinitions(false);
+		request.setGroupId("tribefire.extension.swagger");
+		request.setModelBaseName("test-swagger-import");
+		request.setPackageName("testswaggerimportmodel");
 		return request;
 	}
-	
+
 	private void assertFilesExistAndAreFiles(File file) {
 		assertThat(file).exists();
 		assertThat(file).isFile();
 	}
-	
-	
+
 }

@@ -38,6 +38,7 @@ import com.braintribe.model.generic.reflection.SimpleType;
 import com.braintribe.model.generic.reflection.SimpleTypes;
 import com.braintribe.model.meta.GmBaseType;
 import com.braintribe.model.meta.GmBooleanType;
+import com.braintribe.model.meta.GmCustomType;
 import com.braintribe.model.meta.GmDateType;
 import com.braintribe.model.meta.GmDecimalType;
 import com.braintribe.model.meta.GmDoubleType;
@@ -99,6 +100,7 @@ import io.swagger.models.HttpMethod;
 import io.swagger.models.Info;
 import io.swagger.models.License;
 import io.swagger.models.Model;
+import io.swagger.models.ModelImpl;
 import io.swagger.models.Operation;
 import io.swagger.models.Path;
 import io.swagger.models.RefModel;
@@ -262,11 +264,22 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 		Optional<Map<String, Model>> swaggerDefinitions = Optional.ofNullable(swagger.getDefinitions());
 
 		swaggerDefinitions.ifPresent(swaggerDefinition -> swaggerDefinition.forEach((key, value) -> {
-			GmEntityType entityType = buildGmEntityType(metaModel, packageName, key, value);
-			metaModel.getTypes().add(entityType);
+			GmCustomType type = null;
 
-			typeRegistry.put(key, entityType);
-			entityTypes.add(entityType);
+			if (value instanceof ModelImpl) {
+				ModelImpl implValue = (ModelImpl) value;
+				List<String> enumValueList = implValue.getEnum();
+				if (enumValueList != null && !enumValueList.isEmpty()) {
+					type = buildGmEnumType(metaModel, packageName, key, implValue);
+				}
+			}
+			if (type == null) {
+				type = buildGmEntityType(metaModel, packageName, key, value);
+				entityTypes.add((GmEntityType) type);
+			}
+			metaModel.getTypes().add(type);
+
+			typeRegistry.put(key, type);
 
 			Model swaggerType = value;
 			String typeSignature = buildTypeSiganture(packageName, key);
@@ -385,6 +398,34 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 		}
 		addMetaDataIfNecessary(entityType.getMetaData(), buildHiddenMd());
 		return entityType;
+	}
+
+	private GmEnumType buildGmEnumType(GmMetaModel metaModel, String typePackage, String baseName, ModelImpl swaggerType) {
+		String typeSignature = buildTypeSiganture(typePackage, baseName);
+
+		GmEnumType enumType = MetaModelBuilder.enumType(typeSignature);
+		enumType.setDeclaringModel(metaModel);
+		enumType.setGlobalId("type:" + typeSignature);
+
+		List<GmEnumConstant> enumConstants = new ArrayList<>();
+		for (String o : swaggerType.getEnum()) {
+			enumConstants.add(MetaModelBuilder.enumConstant(enumType, normalizeEnumTitle(o)));
+		}
+		enumType.setConstants(enumConstants);
+
+		addMetaDataIfNecessary(enumType.getMetaData(), buildNameMd(swaggerType.getTitle(), typeSignature));
+		addMetaDataIfNecessary(enumType.getMetaData(), buildDescriptionMd(swaggerType.getDescription(), typeSignature));
+		if (Objects.nonNull(swaggerType.getExample())) {
+			addMetaDataIfNecessary(enumType.getMetaData(), buildExampleMd(swaggerType.getExample().toString(), typeSignature));
+		}
+
+		Map<String, Object> vendorExtensions = swaggerType.getVendorExtensions();
+		if (MapUtils.isNotEmpty(vendorExtensions)) {
+			vendorExtensions
+					.forEach((key, value) -> addMetaDataIfNecessary(enumType.getMetaData(), buildVendorExtensionMd(value, key, typeSignature)));
+		}
+		addMetaDataIfNecessary(enumType.getMetaData(), buildHiddenMd());
+		return enumType;
 	}
 
 	private GmMetaModel buildApiModel(Swagger swagger, GmMetaModel metaModel) {
@@ -618,9 +659,13 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 		String propertyDescription = propertyDetails.getDescription();
 
 		// TODO: how to identify the id property from swagger?
-		if (!GenericEntity.id.equals(propertyName)) {
-			String key = entityType.getTypeSignature() + "/" + propertyName;
-			GmProperty property = MetaModelBuilder.property(entityType, propertyName, propertyType);
+		if (!GenericEntity.id.equalsIgnoreCase(propertyName)) {
+
+			String lowerCasePropertyName = propertyName.substring(0, 1).toLowerCase() + propertyName.substring(1);
+
+			String key = entityType.getTypeSignature() + "/" + lowerCasePropertyName;
+			GmProperty property = MetaModelBuilder.property(entityType, lowerCasePropertyName, propertyType);
+
 			property.setGlobalId("property:" + key);
 			entityType.getProperties().add(property);
 
@@ -659,7 +704,7 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 	}
 
 	private String normalizeEnumTitle(String title) {
-		return title.replace("\"", "").replaceAll("[^A-Za-z0-9]", "_").toLowerCase();
+		return title.replace("\"", "").replaceAll("[^A-Za-z0-9]", "_");
 	}
 
 	private GmType buildPropertyEntity(GmType entityType, Property propertyDetails, String propertyName) {

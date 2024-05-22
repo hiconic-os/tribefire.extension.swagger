@@ -133,7 +133,7 @@ public class ImportSwaggerModelProcessorTest {
 				GmEnumType gmEnumType = (GmEnumType) type;
 				List<GmEnumConstant> enumConstants = gmEnumType.getConstants();
 				assertThat(enumConstants).hasSize(3);
-				enumConstants.forEach(gmEnumConstant -> assertTrue(gmEnumConstant.getName().startsWith("enumvalue")));
+				enumConstants.forEach(gmEnumConstant -> assertTrue(gmEnumConstant.getName().startsWith("enumValue")));
 			} else {
 				fail("Unexpected GmType!");
 			}

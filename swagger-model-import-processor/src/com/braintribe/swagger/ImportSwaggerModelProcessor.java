@@ -488,10 +488,14 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 		return apiModel;
 	}
 
-	private void processOperations(String urlPath, String typePackage, GmMetaModel apiModel, Path path, GmEntityType baseRequestEntityType) {
+	private void processOperations(final String urlPathFromSwagger, String typePackage, GmMetaModel apiModel, Path path,
+			GmEntityType baseRequestEntityType) {
 
-		if (!StringTools.isBlank(ignorePathPrefix) && urlPath.startsWith(ignorePathPrefix)) {
-			urlPath = urlPath.substring(ignorePathPrefix.length());
+		final String urlPath;
+		if (!StringTools.isBlank(ignorePathPrefix) && urlPathFromSwagger.startsWith(ignorePathPrefix)) {
+			urlPath = urlPathFromSwagger.substring(ignorePathPrefix.length());
+		} else {
+			urlPath = urlPathFromSwagger;
 		}
 
 		for (Map.Entry<HttpMethod, Operation> entry : path.getOperationMap().entrySet()) {
@@ -520,8 +524,15 @@ public class ImportSwaggerModelProcessor implements AccessRequestProcessor<Impor
 			entityType.getSuperTypes().add(baseRequestEntityType);
 			entityType.setGlobalId("type:" + requestTypeSignature);
 
+			String description = operation.getDescription();
+			if (StringTools.isBlank(description)) {
+				description = "(" + urlPath + ")";
+			} else {
+				description += " (" + urlPath + ")";
+			}
+
 			addMetaDataIfNecessary(entityType.getMetaData(), buildNameMd(operation.getSummary(), requestTypeSignature));
-			addMetaDataIfNecessary(entityType.getMetaData(), buildDescriptionMd(operation.getDescription(), requestTypeSignature));
+			addMetaDataIfNecessary(entityType.getMetaData(), buildDescriptionMd(description, requestTypeSignature));
 
 			Map<String, Object> pathVendorExtensions = path.getVendorExtensions();
 			Map<String, Object> operationVendorExtensions = operation.getVendorExtensions();

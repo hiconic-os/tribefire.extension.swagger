@@ -31,7 +31,7 @@ limitations under the License.
         <V.tribefire.cortex.assets>[3.0,3.1)</V.tribefire.cortex.assets>
         <V.tribefire.setup.classic.env>[3.0,3.1)</V.tribefire.setup.classic.env>
         <V.com.fasterxml.jackson.core>2.14.0</V.com.fasterxml.jackson.core>
-        <V.io.swagger.swagger-parser>1.0.61</V.io.swagger.swagger-parser>
+        <V.io.swagger.swagger-parser>1.0.73</V.io.swagger.swagger-parser>
     </properties>
     <licenses>
         <license>

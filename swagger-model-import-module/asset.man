@@ -1,3 +1,2 @@
-TribefireModule = com.braintribe.model.asset.natures.TribefireModule
-
-$nature = TribefireModule()
+$nature = (TribefireModule=com.braintribe.model.asset.natures.TribefireModule)()
+.privateDeps=['javax.mail:.*']
